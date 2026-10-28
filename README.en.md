@@ -17,7 +17,7 @@
 
 ## Overview
 
-DSH Plugin Manager (`dsh-plugin-manager`) is a plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). It adds a **Plugin Manager** icon to the sidebar panel list. Clicking it opens a centered window that lists every plugin installed in the current profile — name, version, package name and description — and offers **per-plugin update**, **update all**, and **remove**.
+DSH Plugin Manager (`@xiaoweiq66/dsh-plugin-manager`) is a plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). It adds a **Plugin Manager** icon to the sidebar panel list. Clicking it opens a centered window that lists every plugin installed in the current profile — name, version, package name and description — and offers **per-plugin update**, **update all**, and **remove**.
 
 No more switching to a terminal to run package commands or hand-editing the profile dependency file: open the window to see which plugins have new versions, and failed updates roll back to the previous source automatically.
 
@@ -45,17 +45,25 @@ No more switching to a terminal to run package commands or hand-editing the prof
 
 ## Installation
 
-Install specs accept `github:` shorthands, git URLs, tarballs, npm package names and absolute local paths. The examples use the `web` profile — replace it with the profile you actually boot (the desktop app usually uses `web`, the terminal app usually `tui`).
+The plugin can be installed from three sources — **npm (recommended)**, the GitHub repository, or a local directory — or by asking DSH to install it through the plugin management tool. The examples use the `web` profile — replace it with the profile you actually boot (the desktop app usually uses `web`, the terminal app usually `tui`).
 
-### Option 1: Command line (recommended)
+### Option 1: From npm (recommended)
+
+```bash
+dsh plugin --profile web add @xiaoweiq66/dsh-plugin-manager
+```
+
+This only talks to the npm registry, never to git, so it is not affected by networks where the browser can open GitHub but git cannot. If the registry itself is restricted, configure a mirror for pnpm first (for example `registry=https://registry.npmmirror.com`).
+
+### Option 2: From GitHub
 
 ```bash
 dsh plugin --profile web add github:XWQ2018/dsh-plugin-manager
 ```
 
-Restart DSH after installation.
+Requires git to reach GitHub over HTTPS on that machine; if only SSH works, see the FAQ.
 
-### Option 2: From a local directory
+### Option 3: From a local directory
 
 ```bash
 dsh plugin --profile web add /absolute/path/to/dsh-plugin-manager
@@ -63,12 +71,12 @@ dsh plugin --profile web add /absolute/path/to/dsh-plugin-manager
 
 The path must be **absolute**; the plugin manager rejects relative paths. On Windows it looks like `D:\plugins\dsh-plugin-manager`.
 
-### Option 3: Ask DSH to install it
+### Option 4: Ask DSH to install it
 
 In a DSH session, have the model call the `plugin_manager` tool:
 
 - `action`: `install_bundle`
-- `target`: `github:XWQ2018/dsh-plugin-manager`, or the absolute path of a local directory
+- `target`: `@xiaoweiq66/dsh-plugin-manager`, `github:XWQ2018/dsh-plugin-manager`, or the absolute path of a local directory
 
 This requires `danger-full-access` permission or a per-call approval. It uses the same management service as the Web UI; the CLI option forwards to pnpm instead, with the same end result.
 
@@ -248,7 +256,7 @@ The DSH-specific part of `package.json`:
 The manager never lists itself, so remove it with the CLI:
 
 ```bash
-dsh plugin --profile web remove dsh-plugin-manager
+dsh plugin --profile web remove @xiaoweiq66/dsh-plugin-manager
 ```
 
 Restart DSH afterwards and the sidebar icon disappears. This removes the plugin dependency and its configuration row only; your session data is untouched.
@@ -277,9 +285,19 @@ dsh plugin --profile web add /absolute/path/to/dsh-plugin-manager
 1. Bump `version` in `package.json`.
 2. Update the README wherever behavior or versions are described.
 3. Commit, tag, and create a GitHub Release.
-4. To publish on npm, the package name is already `dsh-plugin-manager`, `private` is removed, and the license is MIT, so `npm publish` works as-is (provided the name is still free on npm).
+4. To publish on npm: the package is the scoped name `@xiaoweiq66/dsh-plugin-manager`, `private` is removed, and the license is MIT. `publishConfig.access` is already set to `public`, so running `npm publish` in the package directory is enough (passing `--access public` is equivalent).
 
 ## FAQ
+
+**Install fails with `pnpm resolves this specifier over HTTPS...`?**
+That message comes from pnpm's git resolver, not from DSH or this plugin: pnpm always resolves `github:` specs over HTTPS and records a portable URL. If git on that machine can reach github.com only over SSH, rewrite the transport locally as the message suggests:
+
+```bash
+git config --global url."git@github.com:".insteadOf "https://github.com/"
+dsh plugin --profile web add github:XWQ2018/dsh-plugin-manager
+```
+
+This only changes local git behavior; pnpm still records the HTTPS URL, so other machines are unaffected. Undo it with `git config --global --unset url."git@github.com:".insteadOf`. Without an SSH key, or when HTTPS is blocked by a proxy, use the npm install option above instead. Also make sure the repository is **public** — nobody can install from a private repository without access.
 
 **No Plugin Manager icon in the sidebar?**
 Make sure the plugin is installed into the profile you actually boot, then restart DSH. Terminal and desktop profiles are separate — it is easy to install into the wrong one.

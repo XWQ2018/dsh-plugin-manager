@@ -1,11 +1,11 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-plugin-manager',
+  id: '@xiaoweiq66/dsh-plugin-manager',
   factory(require) {
     const React = require('react')
     const h = React.createElement
 
     const NS = 'dsh-plugin-manager'
-    const SELF_PACKAGE = 'dsh-plugin-manager'
+    const SELF_PACKAGE = '@xiaoweiq66/dsh-plugin-manager'
 
     const zh = {
       open: '插件管理',

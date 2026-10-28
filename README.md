@@ -17,7 +17,7 @@
 
 ## 简介
 
-DSH 插件管理（`dsh-plugin-manager`）是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的一个插件：在侧栏面板图标区加一个「插件管理」图标，点开后是一个居中的管理窗口，在一个窗口里列出当前 profile 里已安装的插件——名称、版本、包名和简介，并直接提供**单个更新**、**全部更新**和**卸载**。
+DSH 插件管理（`@xiaoweiq66/dsh-plugin-manager`）是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的一个插件：在侧栏面板图标区加一个「插件管理」图标，点开后是一个居中的管理窗口，在一个窗口里列出当前 profile 里已安装的插件——名称、版本、包名和简介，并直接提供**单个更新**、**全部更新**和**卸载**。
 
 不用再切到终端敲包管理命令，也不用翻 profile 的依赖文件：打开窗口就能看到谁有新版本，失败时还会自动回滚到原版本。
 
@@ -45,17 +45,25 @@ DSH 插件管理（`dsh-plugin-manager`）是 [DeepSeek Harness](https://github.
 
 ## 安装
 
-插件的安装 spec 支持 `github:` 简写、git URL、tarball、npm 包名和本地绝对路径。下面以 `web` profile 为例，请换成你实际启动 DSH 时用的 profile（桌面版通常是 `web`，终端版通常是 `tui`）。
+插件有三种安装来源：**npm 包（推荐）**、GitHub 仓库和本地目录；也可以在会话里让 DSH 调用插件管理工具安装。下面以 `web` profile 为例，请换成你实际启动 DSH 时用的 profile（桌面版通常是 `web`，终端版通常是 `tui`）。
 
-### 方式一：命令行（推荐）
+### 方式一：从 npm 安装（推荐）
+
+```bash
+dsh plugin --profile web add @xiaoweiq66/dsh-plugin-manager
+```
+
+只访问 npm registry，不碰 git，也不受「浏览器能打开 GitHub、但 git 拉不动」这类网络问题影响。registry 访问受限时，先给 pnpm 配置镜像（例如 `registry=https://registry.npmmirror.com`）再安装。
+
+### 方式二：从 GitHub 安装
 
 ```bash
 dsh plugin --profile web add github:XWQ2018/dsh-plugin-manager
 ```
 
-安装完成后重启 DSH。
+需要这台机器的 git 能通过 HTTPS 访问 GitHub；只能走 SSH 时，见「常见问题」里的处理方式。
 
-### 方式二：从本地目录安装
+### 方式三：从本地目录安装
 
 ```bash
 dsh plugin --profile web add /absolute/path/to/dsh-plugin-manager
@@ -63,12 +71,12 @@ dsh plugin --profile web add /absolute/path/to/dsh-plugin-manager
 
 本地路径必须是**绝对路径**，插件管理器不接受相对路径；Windows 下形如 `D:\plugins\dsh-plugin-manager`。
 
-### 方式三：在会话里让 DSH 安装
+### 方式四：在会话里让 DSH 安装
 
 在 DSH 会话中让模型调用 `plugin_manager` 工具：
 
 - `action`: `install_bundle`
-- `target`: `github:XWQ2018/dsh-plugin-manager`，或本地目录的绝对路径
+- `target`: `@xiaoweiq66/dsh-plugin-manager`、`github:XWQ2018/dsh-plugin-manager`，或本地目录的绝对路径
 
 该操作需要 `danger-full-access` 权限，或在调用时单独审批。它和 Web 界面使用的是同一套插件管理服务；命令行方式则转发给 pnpm，最终效果一致。
 
@@ -248,7 +256,7 @@ dsh-plugin-manager/
 插件面板不会列出自身，所以移除它请用命令行：
 
 ```bash
-dsh plugin --profile web remove dsh-plugin-manager
+dsh plugin --profile web remove @xiaoweiq66/dsh-plugin-manager
 ```
 
 卸载后重启 DSH，侧栏图标消失。该操作只移除插件依赖与 profile 里的配置行，不涉及你的会话数据。
@@ -277,9 +285,19 @@ dsh plugin --profile web add /absolute/path/to/dsh-plugin-manager
 1. 更新 `package.json` 的 `version`。
 2. 更新 README 里涉及版本或行为的说明。
 3. 提交并打 tag，在 GitHub 创建 Release。
-4. 如需发布到 npm，包名已改为 `dsh-plugin-manager`，`private` 已移除，`license` 为 MIT，可直接 `npm publish`（前提是 npm 上该名字未被占用）。
+4. 发布到 npm：包名是 scoped 的 `@xiaoweiq66/dsh-plugin-manager`，`private` 已移除，`license` 为 MIT。`publishConfig.access` 已设为 `public`，在包目录执行 `npm publish` 即可（带 `--access public` 效果相同）。
 
 ## 常见问题
+
+**安装时提示 `pnpm resolves this specifier over HTTPS...`？**
+这是 pnpm 解析 `github:` 依赖时给出的提示，不是 DSH 或本插件报的错：pnpm 固定用 HTTPS 解析并记录一个可移植的地址，如果你这台机器的 git 走 HTTPS 到 github.com 不通、只能走 SSH，按提示在本机把传输方式重写即可：
+
+```bash
+git config --global url."git@github.com:".insteadOf "https://github.com/"
+dsh plugin --profile web add github:XWQ2018/dsh-plugin-manager
+```
+
+该配置只改本机 git 的行为，不改变 pnpm 记录的地址，别人安装时不受影响；撤销用 `git config --global --unset url."git@github.com:".insteadOf`。不想折腾 git 的话，直接用上面的 npm 安装方式绕开。另外先确认仓库是**公开**的——私有仓库任何人都装不了。
 
 **侧栏没有出现「插件管理」图标？**
 确认插件已安装到当前启动的 profile，并重启过 DSH；终端版 profile 与桌面版 profile 是分开的，别装错。
