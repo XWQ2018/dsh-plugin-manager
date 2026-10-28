@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Plugin Manager">
+  <defs>
+    <linearGradient id="pm-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f7cf6"/>
+      <stop offset="1" stop-color="#6b4df6"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#pm-bg)"/>
+  <g fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M21 25h8v-4a3 3 0 0 1 6 0v4h8v8h-4a3 3 0 0 0 0 6h4v8h-8v-4a3 3 0 0 0-6 0v4h-8v-8h4a3 3 0 0 0 0-6h-4z" fill="rgba(255,255,255,0.14)"/>
+    <path d="M42 18.5l1.6 3.4 3.4 1.6-3.4 1.6-1.6 3.4-1.6-3.4-3.4-1.6 3.4-1.6z" fill="#ffffff" stroke="none"/>
+  </g>
+</svg>

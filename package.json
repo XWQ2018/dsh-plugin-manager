@@ -1,0 +1,54 @@
+{
+  "name": "dsh-plugin-manager",
+  "version": "1.0.0",
+  "description": "Sidebar plugin manager for DeepSeek Harness: list installed plugins, check for updates, and update or remove them in place.",
+  "type": "module",
+  "license": "MIT",
+  "author": "XWQ2018",
+  "homepage": "https://github.com/XWQ2018/dsh-plugin-manager#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/XWQ2018/dsh-plugin-manager.git"
+  },
+  "bugs": {
+    "url": "https://github.com/XWQ2018/dsh-plugin-manager/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "plugin-manager",
+    "sidebar"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.3 <0.3.0"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-layout"
+      ]
+    }
+  }
+}

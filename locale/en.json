@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Plugin Manager",
+    "description": "Open the list of installed plugins from the sidebar, review name, version and description, and update or remove plugins in place."
+  }
+}
