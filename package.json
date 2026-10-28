@@ -1,6 +1,6 @@
 {
   "name": "@xiaoweiq66/dsh-plugin-manager",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Sidebar plugin manager for DeepSeek Harness: list installed plugins, check for updates, and update or remove them in place.",
   "type": "module",
   "license": "MIT",
@@ -44,7 +44,9 @@
     "LICENSE"
   ],
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "immediately": true,

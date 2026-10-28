@@ -52,6 +52,12 @@ window.__ModuleLoader__.load({
       reload: '刷新',
       closeHint: '关闭插件管理',
       loading: '正在加载插件列表…',
+      selfUpdateAvailable: '有新版本',
+      selfUpdate: '更新插件管理',
+      selfUpdating: '更新中…',
+      selfUpdateHint: '更新插件管理器自身，完成后需要重启 DSH',
+      selfUpdateRestart: '插件管理器已更新，重启 DSH 后生效',
+      selfUpdateFailed: '更新插件管理器失败',
     }
 
     const en = {
@@ -99,6 +105,12 @@ window.__ModuleLoader__.load({
       reload: 'Refresh',
       closeHint: 'Close plugin manager',
       loading: 'Loading plugins…',
+      selfUpdateAvailable: 'New version',
+      selfUpdate: 'Update manager',
+      selfUpdating: 'Updating…',
+      selfUpdateHint: 'Update the plugin manager itself; restart DSH afterwards',
+      selfUpdateRestart: 'Plugin manager updated; restart DSH for it to take effect',
+      selfUpdateFailed: 'Failed to update the plugin manager',
     }
 
     const CSS = [
@@ -110,6 +122,10 @@ window.__ModuleLoader__.load({
       '.dshpm-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:20px 20px 14px}',
       '.dshpm-heading{min-width:0}',
       '.dshpm-title{font-size:16px;font-weight:600;letter-spacing:.01em}',
+      '.dshpm-title-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px}',
+      '.dshpm-self-version{flex:none;font-size:11px;font-weight:500;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}',
+      '.dshpm-self-badge{flex:none;padding:1px 7px;border-radius:999px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-warn-primary) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 16%,transparent);color:var(--dsw-alias-state-warn-primary);font-size:10px;font-weight:700;line-height:15px;white-space:nowrap}',
+      '.dshpm-self-action{height:22px;padding:0 8px;font-size:11px}',
       '.dshpm-subtitle{margin-top:4px;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-secondary)}',
       '.dshpm-header-actions{display:flex;align-items:center;gap:6px}',
       '.dshpm-iconbtn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}',
@@ -170,6 +186,10 @@ window.__ModuleLoader__.load({
       updates: {},
       checkingUpdates: false,
       lastUpdateCheck: 0,
+      selfVersion: '',
+      selfUpdate: null,
+      selfUpdating: false,
+      selfCheckedAt: 0,
     }
 
     const listeners = new Set()
@@ -407,8 +427,17 @@ window.__ModuleLoader__.load({
                 if (profileA !== profileB) return profileA - profileB
                 return String(a.name).localeCompare(String(b.name))
               })
-            patch({ bundles: items, loading: false, loaded: true })
+            const selfBundle = (Array.isArray(all) ? all : []).find(
+              (bundle) => bundle && bundle.name === SELF_PACKAGE,
+            )
+            patch({
+              bundles: items,
+              loading: false,
+              loaded: true,
+              selfVersion: selfBundle && selfBundle.version ? String(selfBundle.version) : '',
+            })
             maybeCheckUpdates(items)
+            checkSelfUpdate(selfBundle)
           } catch (error) {
             patch({ loading: false, loaded: true, error: t('loadFailed') + (errorText(error) ? '：' + errorText(error) : '') })
           }
@@ -431,6 +460,37 @@ window.__ModuleLoader__.load({
             if (x < y) return -1
           }
           return 0
+        }
+
+        /** First-party plugins in this scope skip the market index and ask npm directly. */
+        const DIRECT_REGISTRY_SCOPE = '@xiaoweiq66/'
+        const REGISTRY_BASE = 'https://registry.npmjs.org/'
+
+        function usesDirectRegistry(name) {
+          return typeof name === 'string' && name.startsWith(DIRECT_REGISTRY_SCOPE)
+        }
+
+        /**
+         * Read the latest published version straight from the npm registry, with
+         * the description of that version, so first-party plugins never depend on
+         * a configured market index.
+         */
+        async function registryLatest(name) {
+          try {
+            const response = await fetch(REGISTRY_BASE + encodeURIComponent(name))
+            if (!response.ok) return null
+            const document = await response.json()
+            const latest = document && document['dist-tags'] && document['dist-tags'].latest
+            if (typeof latest !== 'string' || !latest) return null
+            const versioned = document.versions && document.versions[latest]
+            return {
+              latestVersion: latest,
+              description:
+                versioned && typeof versioned.description === 'string' ? versioned.description : '',
+            }
+          } catch (error) {
+            return null
+          }
         }
 
         function setUpdates(name, value) {
@@ -456,66 +516,99 @@ window.__ModuleLoader__.load({
             seeded[bundle.name] = { status: 'checking' }
           }
           patch({ updates: seeded, checkingUpdates: true })
-          try {
-            if (!market) throw new Error('plugin market unavailable')
-            const indexes = unwrap(await market.listIndexes())
-            const urls = (Array.isArray(indexes) ? indexes : [])
-              .map((index) => index && index.url)
-              .filter((url) => typeof url === 'string' && url)
-            if (urls.length === 0) throw new Error('no market index configured')
-            await Promise.all(
-              candidates.map(async (bundle) => {
-                try {
-                  let listing = null
-                  const terms = bundle.name.includes('/')
-                    ? [bundle.name.slice(bundle.name.lastIndexOf('/') + 1), bundle.name]
-                    : [bundle.name]
-                  for (const url of urls) {
-                    for (const text of terms) {
-                      const result = unwrap(
-                        await market.search(url, {
-                          text,
-                          sort: { kind: 'index' },
-                          offset: 0,
-                          limit: 20,
-                        }),
-                      )
-                      const entries = result && Array.isArray(result.entries) ? result.entries : []
-                      listing = entries.find((entry) => entry && entry.name === bundle.name) || null
+
+          const direct = candidates.filter((bundle) => usesDirectRegistry(bundle.name))
+          const indexed = candidates.filter((bundle) => !usesDirectRegistry(bundle.name))
+
+          // First-party (@xiaoweiq66/*) plugins: query the npm registry directly.
+          await Promise.all(
+            direct.map(async (bundle) => {
+              try {
+                const published = await registryLatest(bundle.name)
+                if (!published) {
+                  setUpdates(bundle.name, { status: 'unknown' })
+                  return
+                }
+                const currentVersion = bundle.version ? String(bundle.version) : ''
+                const available = currentVersion
+                  ? compareVersions(published.latestVersion, currentVersion) > 0
+                  : true
+                setUpdates(bundle.name, {
+                  status: available ? 'available' : 'latest',
+                  latestVersion: published.latestVersion,
+                  description: published.description,
+                  expanded: false,
+                })
+              } catch (error) {
+                setUpdates(bundle.name, { status: 'unknown' })
+              }
+            }),
+          )
+
+          // Every other plugin keeps the original plugin-market index behavior.
+          if (indexed.length > 0) {
+            try {
+              if (!market) throw new Error('plugin market unavailable')
+              const indexes = unwrap(await market.listIndexes())
+              const urls = (Array.isArray(indexes) ? indexes : [])
+                .map((index) => index && index.url)
+                .filter((url) => typeof url === 'string' && url)
+              if (urls.length === 0) throw new Error('no market index configured')
+              await Promise.all(
+                indexed.map(async (bundle) => {
+                  try {
+                    let listing = null
+                    const terms = bundle.name.includes('/')
+                      ? [bundle.name.slice(bundle.name.lastIndexOf('/') + 1), bundle.name]
+                      : [bundle.name]
+                    for (const url of urls) {
+                      for (const text of terms) {
+                        const result = unwrap(
+                          await market.search(url, {
+                            text,
+                            sort: { kind: 'index' },
+                            offset: 0,
+                            limit: 20,
+                          }),
+                        )
+                        const entries = result && Array.isArray(result.entries) ? result.entries : []
+                        listing = entries.find((entry) => entry && entry.name === bundle.name) || null
+                        if (listing) break
+                      }
                       if (listing) break
                     }
-                    if (listing) break
-                  }
-                  if (!listing) {
+                    if (!listing) {
+                      setUpdates(bundle.name, { status: 'unknown' })
+                      return
+                    }
+                    const latestVersion =
+                      listing.defaultVersion ||
+                      (listing.versions && listing.versions[0] && listing.versions[0].version) ||
+                      ''
+                    if (!latestVersion) {
+                      setUpdates(bundle.name, { status: 'unknown' })
+                      return
+                    }
+                    const currentVersion = bundle.version ? String(bundle.version) : ''
+                    const available = currentVersion ? compareVersions(latestVersion, currentVersion) > 0 : true
+                    setUpdates(bundle.name, {
+                      status: available ? 'available' : 'latest',
+                      latestVersion,
+                      description: localized(listing.description) || '',
+                      expanded: false,
+                    })
+                  } catch (error) {
                     setUpdates(bundle.name, { status: 'unknown' })
-                    return
                   }
-                  const latestVersion =
-                    listing.defaultVersion ||
-                    (listing.versions && listing.versions[0] && listing.versions[0].version) ||
-                    ''
-                  if (!latestVersion) {
-                    setUpdates(bundle.name, { status: 'unknown' })
-                    return
-                  }
-                  const currentVersion = bundle.version ? String(bundle.version) : ''
-                  const available = currentVersion ? compareVersions(latestVersion, currentVersion) > 0 : true
-                  setUpdates(bundle.name, {
-                    status: available ? 'available' : 'latest',
-                    latestVersion,
-                    description: localized(listing.description) || '',
-                    expanded: false,
-                  })
-                } catch (error) {
-                  setUpdates(bundle.name, { status: 'unknown' })
-                }
-              }),
-            )
-          } catch (error) {
-            for (const bundle of candidates) {
-              setUpdates(bundle.name, { status: 'unknown' })
+                }),
+              )
+            } catch (error) {
+              for (const bundle of indexed) {
+                setUpdates(bundle.name, { status: 'unknown' })
+              }
             }
           }
+
           patch({ checkingUpdates: false, lastUpdateCheck: Date.now() })
         }
 
@@ -525,10 +618,96 @@ window.__ModuleLoader__.load({
           checkUpdates(bundles)
         }
 
-        function updateSpec(bundle) {
-          if (bundle.installTarget && typeof bundle.installTarget.spec === 'string' && bundle.installTarget.spec) {
-            return bundle.installTarget.spec
+        /**
+         * Check the plugin manager itself against npm. The manager never appears
+         * in its own list, so it gets its own check against the first-party scope.
+         */
+        async function checkSelfUpdate(selfBundle) {
+          if (!selfBundle) return
+          if (store.selfCheckedAt > 0 && Date.now() - store.selfCheckedAt < 60000) return
+          patch({ selfCheckedAt: Date.now() })
+          try {
+            const published = await registryLatest(SELF_PACKAGE)
+            if (!published) {
+              patch({ selfUpdate: null })
+              return
+            }
+            const currentVersion = selfBundle.version ? String(selfBundle.version) : ''
+            const available = currentVersion
+              ? compareVersions(published.latestVersion, currentVersion) > 0
+              : Boolean(published.latestVersion)
+            patch({
+              selfUpdate: available
+                ? { latestVersion: published.latestVersion, description: published.description }
+                : null,
+            })
+          } catch (error) {
+            patch({ selfUpdate: null })
           }
+        }
+
+        /**
+         * Update the manager in place: remove its own bundle, then install the
+         * latest published version. The current UI may disappear mid-flight, so
+         * the result is reported as a notice and needs a restart to take effect.
+         */
+        async function updateSelf() {
+          if (store.selfUpdating) return
+          patch({ selfUpdating: true, error: '', notice: null })
+          try {
+            const endpoint = requireRemote()
+            const removal = unwrap(await endpoint.removeBundle(SELF_PACKAGE))
+            const removalOutcome = describeResult(removal)
+            if (removalOutcome.kind === 'error') {
+              patch({ error: t('selfUpdateFailed') + '：' + removalOutcome.text })
+              return
+            }
+            const result = unwrap(
+              await endpoint.installBundle(SELF_PACKAGE + '@latest', { enabled: true }),
+            )
+            const outcome = describeResult(result)
+            if (outcome.kind === 'error') {
+              patch({ error: t('selfUpdateFailed') + '：' + outcome.text })
+              return
+            }
+            patch({
+              selfUpdate: null,
+              notice: {
+                kind: 'warn',
+                text: outcome.kind === 'warn' ? outcome.text : t('selfUpdateRestart'),
+              },
+            })
+          } catch (error) {
+            patch({ error: t('selfUpdateFailed') + '：' + (errorText(error) || t('unknownError')) })
+          } finally {
+            patch({ selfUpdating: false })
+          }
+        }
+
+        /** True for a local source: file:, link:, relative, absolute, or a Windows drive path. */
+        function isLocalSpec(spec) {
+          if (typeof spec !== 'string' || !spec) return false
+          const path = spec.replace(/^(?:file|link):/, '')
+          return (
+            path.startsWith('.') ||
+            path.startsWith('/') ||
+            path.startsWith('~') ||
+            /^[A-Za-z]:[\\/]/.test(path)
+          )
+        }
+
+        function updateSpec(bundle) {
+          const recorded =
+            bundle.installTarget && typeof bundle.installTarget.spec === 'string'
+              ? bundle.installTarget.spec
+              : ''
+          // First-party plugins update straight from npm, unless they come from a local path.
+          if (usesDirectRegistry(bundle.name)) {
+            return isLocalSpec(recorded)
+              ? recorded.replace(/^(?:file|link):/, '')
+              : bundle.name + '@latest'
+          }
+          if (recorded) return recorded
           const source = typeof bundle.source === 'string' ? bundle.source : ''
           if (source) {
             const spec = source.replace(/^(?:file|link):/, '')
@@ -538,6 +717,10 @@ window.__ModuleLoader__.load({
         }
 
         function previousSpec(bundle) {
+          // Roll a first-party plugin back to the exact version that was installed.
+          if (usesDirectRegistry(bundle.name)) {
+            return bundle.version ? bundle.name + '@' + bundle.version : ''
+          }
           if (bundle.installTarget && typeof bundle.installTarget.spec === 'string' && bundle.installTarget.spec) {
             return bundle.installTarget.spec
           }
@@ -1039,7 +1222,34 @@ window.__ModuleLoader__.load({
                 h(
                   'div',
                   { className: 'dshpm-heading' },
-                  h('div', { className: 'dshpm-title', id: 'dshpm-title' }, t('title')),
+                  h(
+                    'div',
+                    { className: 'dshpm-title-row' },
+                    h('span', { className: 'dshpm-title', id: 'dshpm-title' }, t('title')),
+                    store.selfVersion
+                      ? h('span', { className: 'dshpm-self-version' }, 'v' + store.selfVersion)
+                      : null,
+                    store.selfUpdate
+                      ? h(
+                          'span',
+                          { className: 'dshpm-self-badge' },
+                          t('selfUpdateAvailable') + ' v' + store.selfUpdate.latestVersion,
+                        )
+                      : null,
+                    store.selfUpdate
+                      ? h(
+                          'button',
+                          {
+                            type: 'button',
+                            className: 'dshpm-action dshpm-action-accent dshpm-self-action',
+                            disabled: store.selfUpdating,
+                            title: t('selfUpdateHint'),
+                            onClick: updateSelf,
+                          },
+                          store.selfUpdating ? t('selfUpdating') : t('selfUpdate'),
+                        )
+                      : null,
+                  ),
                   h('div', { className: 'dshpm-subtitle' }, t('subtitle')),
                 ),
                 h(

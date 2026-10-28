@@ -27,7 +27,7 @@ No more switching to a terminal to run package commands or hand-editing the prof
 | --- | --- |
 | Sidebar entry | Registers a **Plugin Manager** icon in the sidebar panel list; clicking it opens the centered manager window |
 | Plugin list | Shows name (localized title when the plugin provides one), version, package name and a two-line description; updatable plugins first, built-in bundles last |
-| Update check | Queries the configured plugin market indexes in the background and compares versions; shows **New version vX · What's new ›** when an update exists |
+| Update check | Checks for new versions in the background: `@xiaoweiq66/*` plugins query the npm registry directly, every other plugin uses the configured market indexes; shows **New version vX · What's new ›** when an update exists |
 | Single update | Calls `inspect()` to confirm the target version, reports "already up to date" when it matches, otherwise removes the old version and installs the new one, rolling back to the original source on failure |
 | Update all | Updates every updatable plugin in sequence and summarizes the counts of updated / up-to-date / failed plugins |
 | Safe removal | Inline confirmation row before anything is removed |
@@ -35,13 +35,14 @@ No more switching to a terminal to run package commands or hand-editing the prof
 | Bilingual UI | Follows the active DSH language (Chinese / English) |
 | Theme aware | Uses DSH design tokens throughout, so light and dark themes both work |
 | Keyboard accessible | `Esc` closes the dialog, `Tab` cycles focus inside it, every button has a readable label |
+| Self update | Shows the manager's current version in the header; when npm has a newer version it shows a badge and an **Update manager** button (restart DSH afterwards) |
 
 ## Requirements
 
 - **DeepSeek Harness 0.2.1-rc.3 up to, but not including, 0.3.0** (verified on `0.2.1-rc.3`).
 - A **web profile** or the desktop app: the client half declares `dsh.client.platform: web`.
 - The built-in `pluginManager` service, which ships with DSH — nothing extra to install.
-- **Update checks are optional**: they need a plugin market index configured in DSH (`pluginMarket`). Without one the window still works; it just never reports new versions and keeps the update buttons disabled.
+- **Market indexes only affect other plugins**: `@xiaoweiq66/*` plugins query the npm registry directly and need no index; the other plugins' update checks need a plugin market index configured in DSH (`pluginMarket`) — without one they never report new versions and keep their update buttons disabled.
 
 ## Installation
 
@@ -187,7 +188,8 @@ flowchart TD
 ### Update-check details
 
 - Opening the dialog calls `listBundles()` for the current profile and filters out the plugin manager itself.
-- In the background it reads every configured index URL from `pluginMarket.listIndexes()` and runs `search()` for each updatable plugin, first with the short name and then with the full name.
+- Plugins in the `@xiaoweiq66/*` scope (first-party) skip the market index and query `https://registry.npmjs.org/<package>` directly for `dist-tags.latest` and that version's description.
+- Every other plugin reads every configured index URL from `pluginMarket.listIndexes()` and runs `search()`, first with the short name and then with the full name.
 - It takes `defaultVersion`, falling back to `versions[0].version`, and compares versions segment by segment.
 - Results are cached for 60 seconds (`lastUpdateCheck`) to avoid repeated requests.
 - Any failure only marks that plugin as "unknown": no update hint is shown and the list keeps working.
@@ -196,11 +198,12 @@ flowchart TD
 
 The install spec used for an update is resolved in this order:
 
-1. `bundle.installTarget.spec` (the source recorded by the plugin manager).
-2. `bundle.source` with any `file:` / `link:` prefix stripped.
-3. Fallback: `<package-name>@latest`.
+1. `@xiaoweiq66/*` plugins: keep the local path when the recorded source is local (`file:` / `link:` / relative or absolute), otherwise use `<package>@latest` and update straight from npm.
+2. Other plugins: `bundle.installTarget.spec` (the source recorded by the plugin manager).
+3. Other plugins: `bundle.source` with any `file:` / `link:` prefix stripped.
+4. Fallback: `<package-name>@latest`.
 
-Rollback reuses the same source; when the source is a local path, rollback reinstalls from that path.
+On rollback, `@xiaoweiq66/*` plugins reinstall the exact installed version (`<package>@<version>`); other plugins reuse the same source.
 
 ### Project layout
 
